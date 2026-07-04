@@ -1,0 +1,4 @@
+# The sandbox's Runner is a robot (.github/workflows/robot-runner.yml), with @alonegg
+# as the human backstop. This line auto-requests @alonegg on cross-fork PRs to the
+# upstream repo; within your own fork the robot runs without needing anyone.
+* @alonegg

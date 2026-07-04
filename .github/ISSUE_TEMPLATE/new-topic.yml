@@ -1,0 +1,34 @@
+name: Topic proposal
+description: An idea that could become a candidate paper. Cheap on purpose — recording an idea costs one issue.
+title: "[T??] "
+labels: ["topic-proposal"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A topic is one candidate paper (AGENTS.md §12). If the group likes this,
+        the next step is a small PR adding `topics/T<NN>-<slug>/TOPIC.md` with
+        status `proposing`.
+  - type: input
+    id: idea
+    attributes:
+      label: The idea, in one line
+    validations:
+      required: true
+  - type: textarea
+    id: hypothesis
+    attributes:
+      label: Hypothesis and falsifier
+      placeholder: What do you expect to find — and what result would kill this topic?
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: What data it needs
+      placeholder: Which canonical tables (data/SCHEMA.md)? Anything external (AGENTS.md §15)?
+  - type: textarea
+    id: why-paper
+    attributes:
+      label: Why this could be a paper
+      placeholder: The contribution, the audience, the venue class — one short paragraph.

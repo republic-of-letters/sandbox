@@ -1,0 +1,28 @@
+# This repo carries questions, code, and results — never data.
+# Raw / large data formats are rejected by scripts/check.sh too; this is the first line.
+*.parquet
+*.feather
+*.arrow
+*.duckdb
+*.db
+*.h5
+*.hdf5
+*.pkl
+*.npy
+*.npz
+
+# never commit a real data location or secrets
+.env
+.env.*
+
+# python / tooling noise
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+venv/
+.DS_Store
+
+# iCloud sync duplicates ("name 2.ext")
+* 2.*
+*\ 2.*

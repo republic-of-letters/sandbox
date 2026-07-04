@@ -1,0 +1,185 @@
+# The robot Runner. In a real Republic-of-Letters project a human safety-reviews and
+# runs every round (AGENTS.md §5); in the sandbox the data is public, so a robot does
+# it automatically the moment you open a PR:
+#
+#   1. finds the round folder your PR touched
+#   2. safety-scans the code (scripts/scan-round.sh) — the automated data gate
+#   3. downloads the public dataset and runs `python run.py`
+#   4. checks nothing was written outside result/ and nothing is too big
+#   5. commits result/ back to your branch and comments the headline on the PR
+#
+# The one honest difference from a real project: the data gate here is an automated
+# scan, not a human read. That is safe ONLY because the data is public. See README.md.
+name: robot-runner
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+    paths: ["exchange/R**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: robot-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    # same-repo PR (incl. within-fork) => we hold a write token and can push/comment.
+    env:
+      CAN_WRITE: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - name: Check out the PR code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          fetch-depth: 0
+
+      - name: Find the round folder this PR touches
+        id: find
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -n "$base" ] && git cat-file -e "$base" 2>/dev/null; then
+            changed=$(git diff --name-only "$base"...HEAD -- 'exchange/R*/' || true)
+          else
+            changed=$(git ls-files 'exchange/R*/')
+          fi
+          round=$(printf '%s\n' "$changed" | sed -nE 's#(exchange/R[0-9]+[^/]*)/.*#\1#p' \
+                    | sort -u | grep -v '_TEMPLATE' | head -1)
+          if [ -z "$round" ]; then
+            echo "no round folder touched — nothing to run"
+            echo "round=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ ! -f "$round/run.py" ]; then
+            echo "::error::$round has no run.py"
+            echo "round=" >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+          echo "round=$round" >> "$GITHUB_OUTPUT"
+          echo "picked round: $round"
+
+      - name: Safety gate (automated data gate)
+        if: steps.find.outputs.round != ''
+        id: scan
+        run: |
+          echo "## Robot Runner — \`${{ steps.find.outputs.round }}\`" >> "$GITHUB_STEP_SUMMARY"
+          if bash scripts/scan-round.sh "${{ steps.find.outputs.round }}" | tee scan.log; then
+            echo "safety scan: clean" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "SCAN_FAILED=1" >> "$GITHUB_ENV"
+            { echo ""; echo "**Blocked by the safety scan** (AGENTS.md §5.2):"; \
+              echo '```'; cat scan.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Set up Python
+        if: steps.find.outputs.round != '' && env.SCAN_FAILED != '1'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the scientific stack
+        if: steps.find.outputs.round != '' && env.SCAN_FAILED != '1'
+        run: pip install --quiet pandas pyarrow polars matplotlib
+
+      - name: Download the public dataset
+        if: steps.find.outputs.round != '' && env.SCAN_FAILED != '1'
+        run: bash scripts/get-data.sh
+
+      - name: Run the round
+        if: steps.find.outputs.round != '' && env.SCAN_FAILED != '1'
+        id: run
+        run: |
+          round="${{ steps.find.outputs.round }}"
+          export DATA_ROOT="$PWD/.data"
+          snapshot=$(git status --porcelain)   # baseline before the run
+          cd "$round"
+          set +e
+          timeout 300 python run.py > run.log 2>&1
+          code=$?
+          set -e
+          echo "----- run.py output (tail) -----"
+          tail -40 run.log || true
+          if [ $code -ne 0 ]; then
+            echo "RUN_FAILED=1" >> "$GITHUB_ENV"
+            { echo ""; echo "**\`python run.py\` failed** (exit $code):"; \
+              echo '```'; tail -40 run.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          cd "$OLDPWD"
+          # boundary: nothing written outside the round's result/ (ignore the data + logs)
+          stray=$(git status --porcelain -- . ':!.data' ':!**/run.log' \
+                    | grep -vE "  ?$round/result/" | grep -vE '^\?\? '"$round"'/result/' || true)
+          if [ -n "$stray" ]; then
+            echo "::warning::files changed outside result/:"; printf '%s\n' "$stray"
+          fi
+
+      - name: Enforce the data boundary (size + no data files)
+        if: steps.find.outputs.round != '' && env.SCAN_FAILED != '1' && env.RUN_FAILED != '1'
+        run: bash scripts/check.sh
+
+      - name: Commit result back to the branch
+        if: steps.find.outputs.round != '' && env.SCAN_FAILED != '1' && env.RUN_FAILED != '1' && env.CAN_WRITE == 'true'
+        run: |
+          round="${{ steps.find.outputs.round }}"
+          git config user.name  "robot-runner"
+          git config user.email "robot-runner@users.noreply.github.com"
+          git add "$round/result"
+          if git diff --cached --quiet; then
+            echo "no result changes to commit"
+          else
+            git commit -m "$(basename "$round"): robot run — result"
+            git push origin HEAD:"${{ github.event.pull_request.head.ref }}"
+          fi
+
+      - name: Comment the headline on the PR
+        if: steps.find.outputs.round != '' && env.CAN_WRITE == 'true' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const round = "${{ steps.find.outputs.round }}";
+            const scanFailed = process.env.SCAN_FAILED === '1';
+            const runFailed  = process.env.RUN_FAILED === '1';
+            let body;
+            if (!round) {
+              return; // nothing to say
+            } else if (scanFailed) {
+              body = `🤖 **Robot Runner — \`${round}\`**\n\n` +
+                     `⛔ **Blocked by the safety scan.** I did not run your code. ` +
+                     `See the run log's summary for what tripped, fix it, and push again ` +
+                     `(the scan is AGENTS.md §5.2). Nothing personal — this is the data gate.`;
+            } else if (runFailed) {
+              body = `🤖 **Robot Runner — \`${round}\`**\n\n` +
+                     `⚠️ Your code passed the safety scan but \`python run.py\` errored. ` +
+                     `The failing output is in the workflow run's summary. Fix and push again.`;
+            } else {
+              let headline = "";
+              try {
+                const rm = fs.readFileSync(`${round}/result/RESULT.md`, 'utf8');
+                const m = rm.match(/##\s*Headline\s*\n+([^\n]+)/i);
+                headline = m ? m[1].trim() : "";
+              } catch (e) {}
+              const sha = "${{ github.event.pull_request.head.sha }}";
+              const repo = "${{ github.event.pull_request.head.repo.full_name }}";
+              const tree = `https://github.com/${repo}/tree/${sha}/${round}/result`;
+              body = `🤖 **Robot Runner — \`${round}\`**\n\n` +
+                     `✅ Safety scan clean → ran \`python run.py\` on the public data → ` +
+                     `committed \`result/\` back to this branch.\n\n` +
+                     (headline ? `> **Headline:** ${headline}\n\n` : "") +
+                     `See [\`result/RESULT.md\`](${tree}/RESULT.md) and any figures under ` +
+                     `[\`result/\`](${tree}). If it answers your question, this round is ` +
+                     `ready to merge — you've sent your first letter and gotten a reply. 🎉`;
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number, body
+            });
+
+      - name: Fail the check if scan or run failed
+        if: env.SCAN_FAILED == '1' || env.RUN_FAILED == '1'
+        run: exit 1

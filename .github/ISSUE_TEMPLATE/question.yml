@@ -1,0 +1,22 @@
+name: Question / discussion
+description: Anything that isn't a round — scoping, a blocker, a data question.
+title: "[Q] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Rounds (pull requests) are for work that produces a result. Use an issue to
+        decide what's worth a round, surface a blocker, or ask about the data.
+  - type: textarea
+    id: body
+    attributes:
+      label: What's on your mind?
+      placeholder: The question, the blocker, or the idea to scope.
+    validations:
+      required: true
+  - type: input
+    id: related
+    attributes:
+      label: Related round(s)
+      placeholder: "e.g. R003, or 'new'"
