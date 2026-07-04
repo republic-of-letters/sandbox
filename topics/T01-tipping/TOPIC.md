@@ -36,10 +36,11 @@ the default co-authorship with the Runner.
 
 | Round | Kind | Question (one line) | Outcome |
 | ----- | ---- | ------------------- | ------- |
-| R001  | analysis | Does the card tip rate vary by hour of day? | see the round |
+| R001  | analysis | Does the card tip rate vary by hour of day? | merged — median tip ~24%–28% of fare, low ~05:00, peak ~19:00 |
 
 ## Decision log
 
 | Date | Decision | Basis | Decided by |
 | ---- | -------- | ----- | ---------- |
 | 2026-07-04 | Topic opened (`probing`) as the sandbox's teaching fixture | — | @alonegg |
+| 2026-07-04 | R001 merged — the sandbox's first real worked round | robot Runner ran it end to end | @alonegg |
