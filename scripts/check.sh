@@ -11,8 +11,15 @@ fail=0
 
 note() { printf '  %s\n' "$1"; }
 
-# files to inspect: everything tracked, minus .git
-files=$(find . -type f -not -path './.git/*')
+# Files to inspect: what git would actually carry — tracked files plus untracked
+# files that are NOT gitignored (so a freshly written result/ is guarded), while
+# .gitignore'd artifacts like a locally downloaded ./.data/ are correctly skipped.
+# The tripwire is about what gets committed, not whatever transient files are on disk.
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  files=$(git ls-files --cached --others --exclude-standard)
+else
+  files=$(find . -type f -not -path './.git/*')   # not a git repo — fall back
+fi
 
 echo "[1/4] file size <= $((MAX_BYTES / 1024 / 1024)) MB"
 while IFS= read -r f; do

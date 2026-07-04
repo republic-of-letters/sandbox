@@ -120,10 +120,17 @@ jobs:
 
       - name: Enforce the data boundary (size + no data files)
         if: steps.find.outputs.round != '' && env.SCAN_FAILED != '1' && env.RUN_FAILED != '1'
-        run: bash scripts/check.sh
+        run: |
+          if bash scripts/check.sh | tee check.log; then
+            echo "boundary: clean" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "BOUNDARY_FAILED=1" >> "$GITHUB_ENV"
+            { echo ""; echo "**Result rejected by the data boundary** (AGENTS.md §8/§11):"; \
+              echo '```'; cat check.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Commit result back to the branch
-        if: steps.find.outputs.round != '' && env.SCAN_FAILED != '1' && env.RUN_FAILED != '1' && env.CAN_WRITE == 'true'
+        if: steps.find.outputs.round != '' && env.SCAN_FAILED != '1' && env.RUN_FAILED != '1' && env.BOUNDARY_FAILED != '1' && env.CAN_WRITE == 'true'
         run: |
           round="${{ steps.find.outputs.round }}"
           git config user.name  "robot-runner"
@@ -145,6 +152,7 @@ jobs:
             const round = "${{ steps.find.outputs.round }}";
             const scanFailed = process.env.SCAN_FAILED === '1';
             const runFailed  = process.env.RUN_FAILED === '1';
+            const boundaryFailed = process.env.BOUNDARY_FAILED === '1';
             let body;
             if (!round) {
               return; // nothing to say
@@ -157,6 +165,12 @@ jobs:
               body = `🤖 **Robot Runner — \`${round}\`**\n\n` +
                      `⚠️ Your code passed the safety scan but \`python run.py\` errored. ` +
                      `The failing output is in the workflow run's summary. Fix and push again.`;
+            } else if (boundaryFailed) {
+              body = `🤖 **Robot Runner — \`${round}\`**\n\n` +
+                     `⚠️ Your code ran, but its output crossed the data boundary — a file too ` +
+                     `big or a raw-data extension under \`result/\` (AGENTS.md §8). I did not ` +
+                     `commit it. Aggregate the output (figures, small tables) and push again. ` +
+                     `See the run log's summary.`;
             } else {
               let headline = "";
               try {
@@ -180,6 +194,6 @@ jobs:
               issue_number: context.issue.number, body
             });
 
-      - name: Fail the check if scan or run failed
-        if: env.SCAN_FAILED == '1' || env.RUN_FAILED == '1'
+      - name: Fail the check if scan, run, or boundary failed
+        if: env.SCAN_FAILED == '1' || env.RUN_FAILED == '1' || env.BOUNDARY_FAILED == '1'
         run: exit 1
