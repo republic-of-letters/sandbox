@@ -61,6 +61,10 @@ permission to push the result straight back to your branch and comment. (You can
 open a PR to the upstream sandbox to have your round shown publicly — see "Two ways to
 open the PR" below.)
 
+> **One-time click:** GitHub disables Actions on new forks. Open your fork's **Actions**
+> tab once and press *"I understand my workflows, go ahead and enable them"* — otherwise
+> the robot never wakes up. (Or: `gh api -X PUT repos/:owner/sandbox/actions/permissions -F enabled=true`.)
+
 ### 1. Scaffold a round (30 sec)
 
 ```bash
@@ -146,7 +150,7 @@ letter and it's in the archive.
 | | Within your fork *(recommended)* | To the upstream sandbox |
 | --- | --- | --- |
 | `base` of the PR | your fork's `main` | `republic-of-letters/sandbox` `main` |
-| Robot can push result back + comment | **yes** — you hold the token | only after a maintainer clicks "approve run" (first-time contributors), and it comments rather than pushing |
+| Robot pushes result + comments on the PR | **yes** — you hold the token | no — a maintainer approves the run first, and results land in the Actions run summary (upstream can't write into a fork's PR) |
 | Good for | learning the loop, fastest feedback | having your round shown in the public repo |
 
 Either way the robot runs your code; within your fork it's instant and needs no one else.
